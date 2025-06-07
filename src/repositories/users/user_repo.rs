@@ -11,17 +11,15 @@
 //! - **데이터 무결성**: 유니크 제약 조건 및 인덱스 관리
 
 use std::sync::Arc;
-use mongodb::{bson::{doc, oid::ObjectId}, IndexModel, options::IndexOptions};
+use mongodb::{bson::{doc, oid::ObjectId}, options::IndexOptions, IndexModel};
 use crate::{
-    domain::entities::users::user::User,
-    core::{
-        errors::AppError,
-        registry::Repository,
-    },
-    db::Database,
     caching::redis::RedisClient,
+    core::registry::Repository,
+    db::Database,
+    domain::entities::users::user::User,
 };
 use singleton_macro::repository;
+use crate::errors::errors::AppError;
 
 /// 사용자 데이터 액세스 리포지토리
 /// 

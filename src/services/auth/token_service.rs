@@ -58,14 +58,14 @@
 //! - **역할 기반 접근**: 권한 정보 포함으로 인가 지원
 
 use chrono::{Duration, Utc};
-use jsonwebtoken::{encode, decode, Header, Validation, EncodingKey, DecodingKey};
+use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 use singleton_macro::service;
 use crate::{
+    config::{AuthProvider, JwtConfig},
     domain::entities::users::user::User,
-    config::{JwtConfig, AuthProvider},
-    core::errors::AppError,
 };
+use crate::errors::errors::AppError;
 
 /// JWT 토큰의 클레임(Payload) 구조체
 /// 

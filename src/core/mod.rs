@@ -159,7 +159,7 @@
 //!
 //! ### 순환 참조 감지
 //! ```text
-//! ❌ Circular dependency detected for type: UserService
+//! Circular dependency detected for type: UserService
 //! panic: Circular dependency detected: UserService is already being initialized
 //! ```
 //! **해결**: 서비스 계층 구조를 재설계하여 단방향 의존성으로 변경
@@ -170,8 +170,7 @@
 //! ```
 //! **해결**: `#[service]` 매크로 적용 또는 `ServiceLocator::set()` 으로 수동 등록
 
-pub mod errors;
 pub mod registry;
 
-pub use errors::*;
+pub use crate::errors::errors::*;
 pub use registry::*;

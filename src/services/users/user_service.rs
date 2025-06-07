@@ -68,18 +68,17 @@ use bcrypt::hash;
 use singleton_macro::service;
 use crate::{
     domain::{
-        entities::users::user::User,
         dto::users::{
             request::CreateUserRequest,
-            response::{UserResponse, CreateUserResponse},
+            response::{CreateUserResponse, UserResponse},
         },
+        entities::users::user::User,
     },
-    repositories::users::user_repo::UserRepository,
-    core::{
-        errors::AppError,
-    },
+    repositories::users::user_repo::UserRepository
+    ,
 };
 use crate::config::PasswordConfig;
+use crate::errors::errors::AppError;
 
 /// 사용자 관리 비즈니스 로직 서비스
 /// 

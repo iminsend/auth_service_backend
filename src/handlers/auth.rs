@@ -237,18 +237,18 @@
 //! }
 //! ```
 
-use actix_web::{web, HttpResponse, get, post};
-use serde::{Deserialize};
+use actix_web::{get, post, web, HttpResponse};
+use serde::Deserialize;
 use validator::Validate;
 use crate::{
-    core::errors::AppError,
     config::AuthProvider,
-    services::{
-        users::user_service::UserService,
-        auth::{GoogleAuthService, TokenService},
-    },
     domain::dto::users::response::LoginResponse,
+    services::{
+        auth::{GoogleAuthService, TokenService},
+        users::user_service::UserService,
+    },
 };
+use crate::errors::errors::AppError;
 
 /// 로컬 로그인 요청 구조체
 ///

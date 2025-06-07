@@ -3,7 +3,7 @@
 //! 문자열 처리와 관련된 공통 유틸리티 함수들입니다.
 
 use serde::Deserialize;
-use crate::core::errors::AppError;
+use crate::errors::errors::AppError;
 
 /// 필수 문자열 필드 검증 및 정리
 /// 

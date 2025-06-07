@@ -131,13 +131,13 @@
 use std::sync::Arc;
 use singleton_macro::service;
 use crate::{
+    config::{AuthProvider, GoogleOAuthConfig, OAuthConfig},
     domain::entities::users::user::User,
     repositories::users::user_repo::UserRepository,
-    config::{GoogleOAuthConfig, OAuthConfig, AuthProvider},
-    core::errors::AppError,
 };
 use crate::domain::dto::users::response::google_oauth_response::{GoogleTokenResponse, OAuthLoginUrlResponse};
 use crate::domain::models::oauth::google_oauth_model::google_user::GoogleUserInfo;
+use crate::errors::errors::AppError;
 
 /// Google OAuth 2.0 인증 서비스
 /// 

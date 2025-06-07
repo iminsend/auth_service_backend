@@ -368,6 +368,5 @@ pub mod entities;
 pub mod dto;
 pub mod models;
 
-pub use entities::*;
 pub use dto::*;
 pub use models::*;

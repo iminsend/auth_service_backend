@@ -1,11 +1,9 @@
 //! # 캐싱 모듈
-//!
 //! 이 모듈은 백엔드 서비스의 캐싱 계층을 제공합니다.
 //! Spring Framework의 Cache Abstraction과 유사한 역할을 수행하며,
 //! 데이터베이스 조회 성능 최적화와 응답 시간 단축을 목적으로 합니다.
 //!
 //! ## 주요 기능
-//!
 //! - **Redis 통합**: Redis를 백엔드로 하는 분산 캐시 지원
 //! - **직렬화/역직렬화**: JSON 기반 자동 객체 변환
 //! - **TTL 지원**: 키별 만료 시간 설정
@@ -13,7 +11,6 @@
 //! - **연결 풀링**: 멀티플렉싱을 통한 효율적인 연결 관리
 //!
 //! ## 아키텍처 설계
-//!
 //! ```text
 //! Service Layer
 //!      ↓
@@ -22,17 +19,7 @@
 //! Redis Server
 //! ```
 //!
-//! ## Spring과의 유사점
-//!
-//! | Spring | 이 구현 |
-//! |--------|---------|
-//! | `@Cacheable` | Repository 매크로의 캐시 메서드 |
-//! | `@CacheEvict` | `invalidate_cache()` |
-//! | `CacheManager` | `RedisClient` |
-//! | `@EnableCaching` | 매크로 기반 자동 설정 |
-//!
 //! ## 사용 예제
-//!
 //! ```rust,ignore
 //! use crate::caching::redis::RedisClient;
 //!
@@ -60,9 +47,7 @@
 //! - KEYS 명령 사용 시 프로덕션 환경에서 주의 필요
 //!
 //! ## 환경 설정
-//!
-//! Redis 연결은 환경 변수를 통해 설정됩니다:
-//!
+//! Redis 연결은 .env 환경 변수를 통해 설정됩니다:
 //! ```bash
 //! # 기본값: redis://localhost:6379
 //! REDIS_URL=redis://your-redis-server:6379
