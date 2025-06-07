@@ -1,0 +1,46 @@
+# Rust 빌드 아티팩트
+/target
+
+# 환경 설정 파일 (민감한 정보 포함)
+.env
+.env.local
+.env.dev
+.env.prod
+.env.test
+.env.staging
+
+# 로그 파일
+*.log
+server.log
+
+# IDE 설정 파일
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+ehthumbs.db
+
+# 백업 파일
+*.bak
+*.backup
+*.old
+
+# 임시 파일
+*.tmp
+*.temp
+
+# 보안 관련 파일
+*.pem
+*.key
+*.crt
+*.p12
+
+# 캐시 파일
+.cache/

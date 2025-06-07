@@ -1,0 +1,66 @@
+[package]
+name = "auth_service_backend"
+version = "0.1.0"
+edition = "2024"
+authors = ["Janghoon Park <ceoroom@gmail.com>"]
+license = "MIT OR Apache-2.0"
+description = "Backend authentication service using singleton dependency injection patterns"
+
+[dependencies]
+# Web framework
+actix-web = "4.9"
+actix-cors = "0.7"
+
+singleton_macro = "0.1.0"
+
+# Database
+mongodb = "3.2.3"
+
+# Redis
+redis = { version = "0.32.0", features = ["tokio-comp", "connection-manager", "json"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Validation
+validator = { version = "0.20.0", features = ["derive"] }
+
+# Password hashing
+bcrypt = "0.17.0"
+
+# JWT tokens
+jsonwebtoken = "9.3"
+
+# HTTP client
+reqwest = { version = "0.12", features = ["json"] }
+
+# URL encoding
+urlencoding = "2.1"
+
+# Error handling
+thiserror = "2.0.12"
+
+# Logging
+env_logger = "0.11"
+log = "0.4"
+
+# Environment variables
+dotenv = "0.15"
+
+# Date/Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Async trait
+async-trait = "0.1"
+
+# Singleton infrastructure
+once_cell = "1.20"
+inventory = "0.3"
+
+[lib]
+name = "auth_service_backend"
+
+[[bin]]
+name = "auth_service_backend"
+path = "src/main.rs"
