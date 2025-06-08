@@ -10,6 +10,7 @@ description = "Backend authentication service using singleton dependency injecti
 # Web framework
 actix-web = "4.9"
 actix-cors = "0.7"
+actix-governor = "0.8.0"
 
 singleton_macro = "0.1.0"
 

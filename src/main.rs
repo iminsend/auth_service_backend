@@ -7,6 +7,7 @@ use std::sync::Arc;
 use actix_cors::Cors;
 use actix_web::http::header;
 use actix_web::{middleware, App, HttpServer};
+use actix_governor::{Governor, GovernorConfigBuilder};
 use dotenv::{dotenv};
 use env_logger::Env;
 use log::{error, info};
@@ -14,6 +15,13 @@ use auth_service_backend::caching::redis::RedisClient;
 use auth_service_backend::core::registry::ServiceLocator;
 use auth_service_backend::db::Database;
 use auth_service_backend::routes::configure_all_routes;
+
+/// Rate Limiting 설정 구조체
+#[derive(Debug)]
+struct RateLimitConfig {
+    per_second: u64,
+    burst_size: u32,
+}
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -68,12 +76,30 @@ async fn start_http_server() -> std::io::Result<()> {
     info!("📍 Health check: http://{}/health", bind_address);
     info!("📍 API Docs: http://{}/api/v1", bind_address);
 
-    HttpServer::new(|| {
+    // Rate Limiting 설정
+    let rate_limit_config = load_rate_limit_config();
+    let governor_conf = GovernorConfigBuilder::default()
+        .requests_per_second(rate_limit_config.per_second)
+        .burst_size(rate_limit_config.burst_size)
+        .use_headers()
+        .finish()
+        .unwrap();
+
+    info!(
+        "🛡️ Rate Limiting 활성화: 초당 {}요청, 버스트 {}개", 
+        rate_limit_config.per_second, 
+        rate_limit_config.burst_size
+    );
+
+    HttpServer::new(move || {
         // CORS 설정
         let cors = configure_cors();
 
         App::new()
-            // 미들웨어 등록
+            // Rate Limiting 미들웨어 (가장 먼저 적용)
+            .wrap(Governor::new(&governor_conf))
+            
+            // 기존 미들웨어들
             .wrap(cors)
             .wrap(middleware::Logger::default())
             .wrap(middleware::NormalizePath::trim())
@@ -243,4 +269,52 @@ fn configure_cors() -> Cors {
 
         // Preflight 요청 캐시 시간 (초)
         .max_age(3600)
+}
+
+/// 환경변수에서 Rate Limiting 설정을 로드합니다
+///
+/// 환경변수에서 다음 설정을 읽어옵니다:
+/// * `RATE_LIMIT_PER_SECOND` - 초당 허용 요청 수 (기본값: 100)
+/// * `RATE_LIMIT_BURST_SIZE` - 버스트 허용량 (기본값: 200)
+/// * `RATE_LIMIT_USE_HEADERS` - 응답 헤더 포함 여부 (기본값: true)
+///
+/// # Returns
+///
+/// * `RateLimitConfig` - 로드된 Rate Limiting 설정
+///
+/// # Examples
+///
+/// ```bash
+/// # .env.dev (개발 환경)
+/// RATE_LIMIT_PER_SECOND=20
+/// RATE_LIMIT_BURST_SIZE=40
+///
+/// # .env.prod (운영 환경)  
+/// RATE_LIMIT_PER_SECOND=500
+/// RATE_LIMIT_BURST_SIZE=1000
+/// ```
+fn load_rate_limit_config() -> RateLimitConfig {
+    let per_second = std::env::var("RATE_LIMIT_PER_SECOND")
+        .unwrap_or_else(|_| "100".to_string())
+        .parse::<u64>()
+        .unwrap_or_else(|e| {
+            error!("RATE_LIMIT_PER_SECOND 파싱 실패: {}. 기본값 100 사용", e);
+            100
+        });
+
+    let burst_size = std::env::var("RATE_LIMIT_BURST_SIZE")
+        .unwrap_or_else(|_| "200".to_string())
+        .parse::<u32>()
+        .unwrap_or_else(|e| {
+            error!("RATE_LIMIT_BURST_SIZE 파싱 실패: {}. 기본값 200 사용", e);
+            200
+        });
+
+    let config = RateLimitConfig {
+        per_second,
+        burst_size,
+    };
+
+    info!("Rate Limiting 설정 로드됨: {:?}", config);
+    config
 }

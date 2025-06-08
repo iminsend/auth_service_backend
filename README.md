@@ -17,6 +17,7 @@ Rust로 구현된 백엔드 인증 서비스입니다. Spring Framework의 설�
 - **웹 프레임워크**: Actix-Web
 - **데이터베이스**: MongoDB
 - **캐시**: Redis
+- **Rate Limiting**: Actix-Governor
 - **인증**: JWT, OAuth 2.0 (Google)
 - **시리얼라이제이션**: Serde
 - **비동기**: Tokio
@@ -56,6 +57,10 @@ vim .env
 MONGODB_URI=mongodb://localhost:27017
 DATABASE_NAME=auth_service_dev
 
+# Rate Limiting (환경에 맞게 조정)
+RATE_LIMIT_PER_SECOND=100
+RATE_LIMIT_BURST_SIZE=200
+
 # Google OAuth (필수)
 GOOGLE_CLIENT_ID=your-actual-client-id.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=GOCSPX-your-actual-client-secret
@@ -76,6 +81,49 @@ cargo run --release
 ```
 
 서버가 `http://localhost:8080`에서 시작됩니다.
+
+## 🚦 Rate Limiting 설정
+
+서비스는 DDoS 공격과 남용을 방지하기 위한 Rate Limiting을 제공합니다.
+
+### 환경별 권장 설정
+
+```bash
+# 개발 환경 (.env.dev)
+RATE_LIMIT_PER_SECOND=20    # 테스트하기 쉬운 낮은 제한
+RATE_LIMIT_BURST_SIZE=40    # 
+
+# 스테이징 환경
+RATE_LIMIT_PER_SECOND=100   # 실제 사용 패턴 시뮬레이션
+RATE_LIMIT_BURST_SIZE=200   #
+
+# 프로덕션 환경 (.env.prod)
+RATE_LIMIT_PER_SECOND=500   # 높은 트래픽 허용
+RATE_LIMIT_BURST_SIZE=1000  # 순간적인 트래픽 급증 대응
+```
+
+### Rate Limiting 테스트
+
+```bash
+# Rate Limiting 동작 확인
+chmod +x test_rate_limit.sh
+./test_rate_limit.sh
+
+# 결과 예시:
+# ✅ 성공: 40 개
+# 🚫 Rate Limited: 10 개
+# 📈 차단률: 20%
+```
+
+### HTTP 응답 헤더
+
+Rate Limiting이 활성화되면 다음 헤더가 포함됩니다:
+
+```http
+X-RateLimit-Limit: 500
+X-RateLimit-Remaining: 499
+X-RateLimit-Reset: 1640995200
+```
 
 ## 🔧 Google OAuth 설정
 
@@ -245,6 +293,10 @@ docker run -d \
 JWT_SECRET=your-production-256-bit-secret
 OAUTH_STATE_SECRET=your-production-oauth-secret
 
+# Rate Limiting (프로덕션 트래픽에 맞게)
+RATE_LIMIT_PER_SECOND=500
+RATE_LIMIT_BURST_SIZE=1000
+
 # 데이터베이스 (실제 클러스터)
 MONGODB_URI=mongodb+srv://user:pass@cluster.mongodb.net/...
 DATABASE_NAME=auth_service_prod
@@ -287,6 +339,15 @@ Error: Redis connection refused
 Error: Address already in use
 ```
 **해결**: `.env`에서 다른 포트 번호 설정
+
+#### Rate Limiting 429 에러
+```bash
+HTTP 429 Too Many Requests
+```
+**해결**: 
+- 요청 빈도 조절
+- `.env`에서 `RATE_LIMIT_PER_SECOND` 값 증가
+- 개발 환경에서는 더 관대한 설정 사용
 
 ## 📖 개발 가이드
 
