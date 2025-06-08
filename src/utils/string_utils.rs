@@ -1,6 +1,7 @@
-//! # 문자열 유틸리티
+//! 문자열 처리 유틸리티
 //! 
-//! 문자열 처리와 관련된 공통 유틸리티 함수들입니다.
+//! 문자열 검증, 정리, 변환을 위한 공통 함수들을 제공합니다.
+//! JSON 역직렬화 시 자동 문자열 정리 기능도 포함합니다.
 
 use serde::Deserialize;
 use crate::errors::errors::AppError;
@@ -8,17 +9,23 @@ use crate::errors::errors::AppError;
 /// 필수 문자열 필드 검증 및 정리
 /// 
 /// 빈 문자열이나 공백만 있는 경우 ValidationError를 반환하고,
-/// 유효한 문자열인 경우 앞뒤 공백을 제거한 문자열을 반환합니다.
+/// 유효한 문자열인 경우 앞뒤 공백을 제거합니다.
 /// 
-/// # 인자
+/// # Arguments
+/// 
 /// * `value` - 검증할 문자열
 /// * `field_name` - 필드명 (에러 메시지용)
 /// 
-/// # 반환값
-/// * `Ok(String)` - 정리된 유효한 문자열
-/// * `Err(AppError)` - 빈 문자열이거나 공백만 있는 경우
+/// # Returns
 /// 
-/// # 예제
+/// * `Ok(String)` - 정리된 유효한 문자열
+/// 
+/// # Errors
+/// 
+/// * `AppError::ValidationError` - 빈 문자열이거나 공백만 있는 경우
+/// 
+/// # Examples
+/// 
 /// ```rust,ignore
 /// use crate::utils::string_utils::validate_required_string;
 /// 
@@ -42,22 +49,24 @@ pub fn validate_required_string(value: &str, field_name: &str) -> Result<String,
 /// 선택적 문자열 필드 정리
 /// 
 /// None 값이거나 빈 문자열/공백만 있는 경우 None을 반환하고,
-/// 유효한 문자열인 경우 앞뒤 공백을 제거한 문자열을 Some 옵션으로 반환합니다.
+/// 유효한 문자열인 경우 앞뒤 공백을 제거합니다.
 /// 
-/// # 인자
+/// # Arguments
+/// 
 /// * `value` - 정리할 Option<String>
 /// 
-/// # 반환값
+/// # Returns
+/// 
 /// * `None` - 값이 없거나 빈 문자열인 경우
 /// * `Some(String)` - 정리된 유효한 문자열
 /// 
-/// # 예제
+/// # Examples
+/// 
 /// ```rust,ignore
 /// use crate::utils::string_utils::clean_optional_string;
 /// 
 /// assert_eq!(clean_optional_string(Some("  Hello  ".to_string())), Some("Hello".to_string()));
 /// assert_eq!(clean_optional_string(Some("   ".to_string())), None);
-/// assert_eq!(clean_optional_string(Some("".to_string())), None);
 /// assert_eq!(clean_optional_string(None), None);
 /// ```
 pub fn clean_optional_string(value: Option<String>) -> Option<String> {
@@ -73,15 +82,16 @@ pub fn clean_optional_string(value: Option<String>) -> Option<String> {
 
 /// 문자열 정리 (trim 후 반환)
 /// 
-/// 단순히 앞뒤 공백을 제거합니다.
+/// # Arguments
 /// 
-/// # 인자
 /// * `value` - 정리할 문자열
 /// 
-/// # 반환값
-/// * 앞뒤 공백이 제거된 문자열
+/// # Returns
 /// 
-/// # 예제
+/// 앞뒤 공백이 제거된 문자열
+/// 
+/// # Examples
+/// 
 /// ```rust,ignore
 /// use crate::utils::string_utils::trim_string;
 /// 
@@ -91,16 +101,21 @@ pub fn trim_string(value: &str) -> String {
     value.trim().to_string()
 }
 
-/// 문자열이 유효한지 확인 (빈 문자열이 아니고 공백만으로 구성되지 않음)
+/// 문자열이 유효한지 확인
 /// 
-/// # 인자
+/// 빈 문자열이 아니고 공백만으로 구성되지 않은 경우 유효한 것으로 판단합니다.
+/// 
+/// # Arguments
+/// 
 /// * `value` - 확인할 문자열
 /// 
-/// # 반환값
+/// # Returns
+/// 
 /// * `true` - 유효한 문자열
 /// * `false` - 빈 문자열이거나 공백만 있는 경우
 /// 
-/// # 예제
+/// # Examples
+/// 
 /// ```rust,ignore
 /// use crate::utils::string_utils::is_valid_string;
 /// 
@@ -115,18 +130,23 @@ pub fn is_valid_string(value: &str) -> bool {
 /// 선택적 문자열 필드를 위한 serde deserializer
 /// 
 /// JSON 역직렬화 시 빈 문자열이나 공백만 있는 문자열을 자동으로 None으로 변환하고,
-/// 유효한 문자열인 경우 앞뒤 공백을 제거한 후 Some으로 반환합니다.
-/// serde의 `#[serde(deserialize_with = "deserialize_optional_string")]` 속성과 함께 사용됩니다.
+/// 유효한 문자열인 경우 앞뒤 공백을 제거합니다.
 /// 
-/// # 인자
+/// # Arguments
+/// 
 /// * `deserializer` - serde deserializer 인스턴스
 /// 
-/// # 반환값
+/// # Returns
+/// 
 /// * `Ok(Some(String))` - 유효한 문자열 (앞뒤 공백 제거됨)
 /// * `Ok(None)` - null 값, 빈 문자열, 또는 공백만 있는 경우
-/// * `Err(D::Error)` - 역직렬화 실패 시
 /// 
-/// # 예제
+/// # Errors
+/// 
+/// * `D::Error` - 역직렬화 실패 시
+/// 
+/// # Examples
+/// 
 /// ```rust,ignore
 /// use serde::Deserialize;
 /// use crate::utils::string_utils::deserialize_optional_string;
@@ -140,7 +160,6 @@ pub fn is_valid_string(value: &str) -> bool {
 /// // JSON: {"nickname": "  Alice  "} → Some("Alice")
 /// // JSON: {"nickname": ""} → None
 /// // JSON: {"nickname": null} → None
-/// // JSON: {"nickname": "   "} → None
 /// ```
 pub fn deserialize_optional_string<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
 where

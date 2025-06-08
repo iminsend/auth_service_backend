@@ -1,3 +1,8 @@
+//! 인센드 인증 서비스 메인 애플리케이션
+//!
+//! Actix-web 기반의 HTTP 서버를 구동하고 모든 서비스를 초기화합니다.
+//! MongoDB, Redis 연결을 설정하고 JWT 인증 기반의 REST API를 제공합니다.
+
 use std::sync::Arc;
 use actix_cors::Cors;
 use actix_web::http::header;
@@ -36,9 +41,26 @@ async fn main() -> std::io::Result<()> {
     start_http_server().await
 }
 
-/// # HTTP 서버 시작
+/// HTTP 서버를 구성하고 실행합니다
 ///
-/// 애플리케이션의 HTTP 서버를 구성하고 실행합니다.
+/// Actix-web 기반 HTTP 서버를 설정하고 실행합니다.
+/// CORS, 로깅, 경로 정규화 미들웨어를 포함합니다.
+///
+/// # Returns
+///
+/// * `Ok(())` - 서버가 정상적으로 종료됨
+///
+/// # Errors
+///
+/// * `std::io::Error` - 포트 바인딩 실패 또는 서버 실행 오류
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// // 서버는 127.0.0.1:8080에서 실행됩니다
+/// // Health check: http://127.0.0.1:8080/health
+/// // API 엔드포인트: http://127.0.0.1:8080/api/v1/*
+/// ```
 async fn start_http_server() -> std::io::Result<()> {
     let bind_address = "127.0.0.1:8080";
 
@@ -65,13 +87,26 @@ async fn start_http_server() -> std::io::Result<()> {
         .await
 }
 
-/// # 환경 설정 파일 로드
+/// 환경별 설정 파일을 로드합니다
 ///
-/// 개발/운영 환경에 따라 적절한 .env 파일을 로드합니다.
+/// PROFILE 환경변수에 따라 적절한 .env 파일을 로드합니다.
+/// 개발환경과 운영환경을 구분하여 설정을 관리합니다.
 ///
-/// ## 환경 변수
-/// - `PROFILE=dev`: .env.dev 파일 로드 (기본값)
-/// - `PROFILE=prod`: .env.prod 파일 로드
+/// # Environment Variables
+///
+/// * `PROFILE=dev` - .env.dev 파일 로드 (기본값)
+/// * `PROFILE=prod` - .env.prod 파일 로드
+/// * 기타 - 기본 .env 파일 로드
+///
+/// # Examples
+///
+/// ```bash
+/// # 개발 환경
+/// PROFILE=dev cargo run
+///
+/// # 운영 환경  
+/// PROFILE=prod cargo run
+/// ```
 fn load_env_file() {
     let profile = std::env::var("PROFILE").unwrap_or_else(|_| "dev".to_string());
 
@@ -94,16 +129,49 @@ fn load_env_file() {
     }
 }
 
-/// 로깅 초기화
+/// 로깅 시스템을 초기화합니다
 ///
-/// 환경 변수 기반으로 로깅 시스템을 초기화합니다.
+/// 환경변수 RUST_LOG를 기반으로 로깅 레벨을 설정합니다.
+/// 기본값은 info 레벨이며, actix_web은 debug 레벨로 설정됩니다.
+///
+/// # Environment Variables
+///
+/// * `RUST_LOG` - 로깅 레벨 설정 (기본값: "info,actix_web=debug")
+///
+/// # Examples
+///
+/// ```bash
+/// # 전체 debug 모드
+/// RUST_LOG=debug cargo run
+///
+/// # 특정 모듈만 debug
+/// RUST_LOG=auth_service_backend::services=debug cargo run
+/// ```
 fn init_logging() {
     env_logger::init_from_env(Env::default().default_filter_or("info,actix_web=debug"));
 }
 
-/// 데이터베이스 및 Redis 초기화
+/// MongoDB와 Redis 연결을 초기화합니다
 ///
-/// MongoDB와 Redis 연결을 설정하고 Arc로 감싼 핸들을 반환합니다.
+/// 데이터베이스 연결을 설정하고 Arc로 래핑된 핸들을 반환합니다.
+/// 연결 실패 시 애플리케이션이 종료됩니다.
+///
+/// # Returns
+///
+/// * `(Arc<Database>, Arc<RedisClient>)` - 초기화된 데이터베이스 및 Redis 클라이언트
+///
+/// # Panics
+///
+/// * MongoDB 연결 실패 시
+/// * Redis 연결 실패 시
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// let (db, redis) = initialize_data_stores().await;
+/// ServiceLocator::set(db);
+/// ServiceLocator::set(redis);
+/// ```
 async fn initialize_data_stores() -> (Arc<Database>, Arc<RedisClient>) {
     info!("📡 데이터베이스 연결 중...");
 
@@ -128,10 +196,27 @@ async fn initialize_data_stores() -> (Arc<Database>, Arc<RedisClient>) {
     (database, redis_client)
 }
 
-/// CORS 설정 구성
+/// CORS 설정을 구성합니다
 ///
-/// HTTP 서버의 CORS(Cross-Origin Resource Sharing) 설정을 구성합니다.
-/// 개발 환경에서 프론트엔드와의 통신을 위해 필요합니다.
+/// 프론트엔드와의 통신을 위한 CORS(Cross-Origin Resource Sharing) 설정을 구성합니다.
+/// 개발환경에서 로컬호스트 간 통신을 허용합니다.
+///
+/// # Returns
+///
+/// * `Cors` - 구성된 CORS 미들웨어
+///
+/// # Allowed Origins
+///
+/// * `http://localhost:3000` - React 개발 서버
+/// * `http://localhost:8080` - 자체 서버
+/// * `127.0.0.1` 동등한 주소들
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// let cors = configure_cors();
+/// App::new().wrap(cors)
+/// ```
 fn configure_cors() -> Cors {
     Cors::default()
         // 허용할 Origin 설정

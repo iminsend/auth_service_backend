@@ -351,6 +351,7 @@ dependencies = [
  "chrono",
  "dotenv",
  "env_logger",
+ "futures-util",
  "inventory",
  "jsonwebtoken",
  "log",
