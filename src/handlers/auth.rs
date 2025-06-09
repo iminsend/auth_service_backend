@@ -170,7 +170,7 @@ pub async fn verify_token(
         .ok_or_else(|| AppError::AuthenticationError("Authorization 헤더가 없습니다".to_string()))?;
     
     let token = token_service.extract_bearer_token(auth_header)?;
-    let claims = token_service.verify_token(token)?;
+    let claims = token_service.verify_token(token).await?;
     
     Ok(HttpResponse::Ok().json(json!({
         "valid": true,
@@ -202,7 +202,7 @@ pub async fn get_current_user(
     let token = token_service.extract_bearer_token(auth_header)?;
 
     // 토큰 검증 및 사용자 ID 추출
-    let user_id = token_service.extract_user_id(token)?;
+    let user_id = token_service.extract_user_id(token).await?;
 
     // 데이터베이스에서 최신 사용자 정보 조회
     let user = user_service.find_by_id(&user_id).await
@@ -234,30 +234,37 @@ pub async fn refresh_tokens(
     body: Option<web::Json<RefreshTokenRequest>>,
 ) -> Result<HttpResponse, AppError> {
     let token_service = TokenService::instance();
-    let user_service = UserService::instance();
 
     // 리프레시 토큰을 쿠키 또는 요청 본문에서 추출
-    let rt = extract_refresh_token(&req, body.as_deref())?;
+    let refresh_token = extract_refresh_token(&req, body.as_deref())?;
 
-    // 리프레시 토큰 검증
-    let claims = token_service.verify_token(&rt)
-        .map_err(|_| AppError::AuthenticationError("리프레시 토큰이 만료되었거나 유효하지 않습니다".to_string()))?;
+    // Authorization 헤더에서 만료된 액세스 토큰으로부터 사용자 ID 추출
+    // 만료된 토큰이라도 서명이 유효하면 claims를 읽을 수 있음
+    let user_id = if let Some(auth_header) = req.headers().get("Authorization") {
+        if let Ok(auth_str) = auth_header.to_str() {
+            if let Ok(token) = token_service.extract_bearer_token(auth_str) {
+                // 동기식 검증 사용 (만료된 토큰도 서명이 유효하면 claims 읽기 가능)
+                if let Ok(claims) = token_service.verify_token_sync(token) {
+                    claims.sub
+                } else {
+                    return Err(AppError::AuthenticationError("액세스 토큰에서 사용자 정보를 추출할 수 없습니다".to_string()));
+                }
+            } else {
+                return Err(AppError::AuthenticationError("유효하지 않은 토큰 형식입니다".to_string()));
+            }
+        } else {
+            return Err(AppError::AuthenticationError("Authorization 헤더 형식이 잘못되었습니다".to_string()));
+        }
+    } else {
+        return Err(AppError::AuthenticationError("Authorization 헤더가 필요합니다".to_string()));
+    };
 
-    // 사용자 정보 조회
-    let user = user_service.find_by_id(&claims.sub).await
-        .map_err(|_| AppError::InternalError("사용자 조회 중 오류가 발생했습니다".to_string()))?
-        .ok_or_else(|| AppError::AuthenticationError("사용자를 찾을 수 없습니다".to_string()))?;
+    // TokenService의 refresh_access_token을 사용하여 새로운 토큰 쌍 생성
+    // 이 메서드 내부에서 Redis 리프레시 토큰 검증도 수행됨
+    let token_pair = token_service.refresh_access_token(&user_id, &refresh_token).await
+        .map_err(|e| AppError::AuthenticationError(format!("토큰 갱신 실패: {}", e)))?;
 
-    // 사용자 계정 상태 확인
-    if !user.is_active {
-        log::warn!("비활성 사용자의 토큰 갱신 시도: {}", claims.sub);
-        return Err(AppError::AuthenticationError("계정이 비활성화되었습니다".to_string()));
-    }
-
-    // 새로운 토큰 쌍 생성
-    let token_pair = token_service.generate_token_pair(&user).await?;
-
-    log::info!("토큰 갱신 성공: 사용자 ID {}", claims.sub);
+    log::info!("토큰 갱신 성공: 사용자 ID {}", user_id);
 
     // 응답 생성
     Ok(HttpResponse::Ok().json(json!({

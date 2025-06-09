@@ -1,8 +1,8 @@
-//! JWT 토큰 관리 서비스 구현
+//! JWT 토큰 관리 서비스 구현 (블랙리스트 지원)
 //! 
 //! JSON Web Token 기반의 인증 시스템을 제공합니다.
 //! 액세스 토큰과 리프레시 토큰의 생성, 검증, 갱신을 담당하며,
-//! Redis를 통한 세션 관리를 포함합니다.
+//! Redis를 통한 세션 관리와 토큰 블랙리스트 기능을 포함합니다.
 
 use std::sync::Arc;
 use chrono::{Duration, Utc};
@@ -26,18 +26,18 @@ pub struct TokenValidation {
     pub error_message: Option<String>,
 }
 
-/// JWT 토큰 관리 서비스
+/// JWT 토큰 관리 서비스 (블랙리스트 지원)
 /// 
 /// HMAC-SHA256 서명을 사용하여 안전한 JWT 토큰을 생성하고 검증합니다.
 /// 액세스 토큰(1시간)과 리프레시 토큰(7일)을 지원하며,
-/// Redis를 통한 세션 관리를 제공합니다.
+/// Redis를 통한 세션 관리와 토큰 블랙리스트 기능을 제공합니다.
 #[service(name="token")]
 pub struct TokenService {
     token_repo: Arc<TokenRepository>,
 }
 
 impl TokenService {
-    /// 사용자를 위한 JWT 액세스 토큰 생성
+    /// 사용자를 위한 JWT 액세스 토큰 생성 (JTI 포함)
     /// 
     /// # Arguments
     /// 
@@ -60,11 +60,13 @@ impl TokenService {
     pub fn generate_access_token(&self, user: &User) -> Result<String, AppError> {
         let now = Utc::now();
         let expiration = now + Duration::hours(JwtConfig::expiration_hours());
+        let jti = Uuid::new_v4().to_string(); // JWT ID 생성
         
         let claims = TokenClaims {
             sub: user.id_string().ok_or_else(|| {
                 AppError::InternalError("사용자 ID가 없습니다".to_string())
             })?,
+            jti, // JWT ID 추가
             auth_provider: user.auth_provider.clone(),
             roles: user.roles.clone(),
             iat: now.timestamp(),
@@ -83,7 +85,7 @@ impl TokenService {
             .map_err(|e| AppError::InternalError(format!("JWT 토큰 생성 실패: {}", e)))
     }
 
-    /// 사용자를 위한 리프레시 토큰 생성
+    /// 사용자를 위한 리프레시 토큰 생성 (JTI 포함)
     /// 
     /// # Arguments
     /// 
@@ -103,11 +105,13 @@ impl TokenService {
     pub fn generate_refresh_token(&self, user: &User) -> Result<String, AppError> {
         let now = Utc::now();
         let expiration = now + Duration::days(JwtConfig::refresh_expiration_days());
+        let jti = Uuid::new_v4().to_string(); // JWT ID 생성
         
         let claims = TokenClaims {
             sub: user.id_string().ok_or_else(|| {
                 AppError::InternalError("사용자 ID가 없습니다".to_string())
             })?,
+            jti, // JWT ID 추가
             auth_provider: user.auth_provider.clone(),
             roles: user.roles.clone(),
             iat: now.timestamp(),
@@ -225,12 +229,14 @@ impl TokenService {
         log::info!("TokenService create_token_pair - access_ttl: {}초, refresh_ttl: {}초", 
                    access_expires_in, refresh_expires_in);
 
-        // JWT Access Token 생성
+        // JWT Access Token 생성 (JTI 포함)
         let now = Utc::now();
         let access_exp = now + Duration::seconds(access_expires_in);
+        let access_jti = Uuid::new_v4().to_string();
         
         let claims = TokenClaims {
             sub: user_id.to_string(),
+            jti: access_jti, // JWT ID 추가
             auth_provider: auth_provider.parse().unwrap_or_default(),
             roles: vec!["user".to_string()], // 기본 역할
             iat: now.timestamp(),
@@ -251,11 +257,6 @@ impl TokenService {
         let refresh_token = Uuid::new_v4().to_string();
         
         // Redis에 세션 정보 저장
-        // - 사용자 등록 id
-        // - 사용자 username  
-        // - 인증방식
-        // - 로그인 일시
-        // - 사용자 refresh_token 문자열
         self.token_repo.store_refresh_token(
             user_id,
             username,
@@ -274,7 +275,7 @@ impl TokenService {
         })
     }
 
-    /// JWT 토큰 검증 및 클레임 추출
+    /// JWT 토큰 검증 및 클레임 추출 (블랙리스트 확인 포함)
     /// 
     /// # Arguments
     /// 
@@ -286,17 +287,51 @@ impl TokenService {
     /// 
     /// # Errors
     /// 
-    /// * `AppError::AuthenticationError` - 토큰 만료, 잘못된 형식/서명
+    /// * `AppError::AuthenticationError` - 토큰 만료, 잘못된 형식/서명, 블랙리스트에 등록됨
     /// * `AppError::InternalError` - 기타 시스템 오류
     /// 
     /// # Examples
     /// 
     /// ```rust,ignore
-    /// let claims = token_service.verify_token(token)?;
+    /// let claims = token_service.verify_token(token).await?;
     /// println!("User ID: {}", claims.sub);
     /// println!("Roles: {:?}", claims.roles);
     /// ```
-    pub fn verify_token(&self, token: &str) -> Result<TokenClaims, AppError> {
+    pub async fn verify_token(&self, token: &str) -> Result<TokenClaims, AppError> {
+        // 1. 블랙리스트 확인 (JWT 파싱보다 먼저 수행)
+        if let Err(e) = self.token_repo.is_token_blacklisted(token).await {
+            log::warn!("블랙리스트 확인 중 오류 발생: {}", e);
+            // 블랙리스트 확인 실패 시에도 토큰은 유효한 것으로 처리 (Redis 장애 대응)
+        } else if self.token_repo.is_token_blacklisted(token).await.unwrap_or(false) {
+            return Err(AppError::AuthenticationError("토큰이 블랙리스트에 등록되어 있습니다".to_string()));
+        }
+
+        // 2. JWT 구조 및 서명 검증
+        let secret = JwtConfig::secret();
+        let decoding_key = DecodingKey::from_secret(secret.as_ref());
+        let validation = Validation::default();
+
+        let token_data = decode::<TokenClaims>(token, &decoding_key, &validation)
+            .map_err(|e| match e.kind() {
+                jsonwebtoken::errors::ErrorKind::ExpiredSignature => {
+                    AppError::AuthenticationError("토큰이 만료되었습니다".to_string())
+                },
+                jsonwebtoken::errors::ErrorKind::InvalidToken => {
+                    AppError::AuthenticationError("유효하지 않은 토큰입니다".to_string())
+                },
+                _ => AppError::InternalError(format!("토큰 검증 실패: {}", e))
+            })?;
+
+        Ok(token_data.claims)
+    }
+
+    /// 동기식 토큰 검증 (블랙리스트 확인 없음 - 기존 호환성용)
+    /// 
+    /// # Note
+    /// 
+    /// 이 메서드는 기존 코드와의 호환성을 위해 유지됩니다.
+    /// 새로운 코드에서는 `verify_token` (async 버전)을 사용하세요.
+    pub fn verify_token_sync(&self, token: &str) -> Result<TokenClaims, AppError> {
         let secret = JwtConfig::secret();
         let decoding_key = DecodingKey::from_secret(secret.as_ref());
         let validation = Validation::default();
@@ -327,8 +362,8 @@ impl TokenService {
     /// # Errors
     /// 
     /// * `AppError::AuthenticationError` - 토큰 검증 실패
-    pub fn extract_user_id(&self, token: &str) -> Result<String, AppError> {
-        let claims = self.verify_token(token)?;
+    pub async fn extract_user_id(&self, token: &str) -> Result<String, AppError> {
+        let claims = self.verify_token(token).await?;
         Ok(claims.sub)
     }
 
@@ -353,7 +388,7 @@ impl TokenService {
     /// ```rust,ignore
     /// let auth_header = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...";
     /// let token = token_service.extract_bearer_token(auth_header)?;
-    /// let claims = token_service.verify_token(token)?;
+    /// let claims = token_service.verify_token(token).await?;
     /// ```
     pub fn extract_bearer_token<'a>(&self, auth_header: &'a str) -> Result<&'a str, AppError> {
         if auth_header.starts_with("Bearer ") {
@@ -380,7 +415,7 @@ impl TokenService {
         let token_info = self.token_repo.get_refresh_token(user_id, refresh_token).await?
             .ok_or("Invalid or expired refresh token")?;
 
-        // 2. 새로운 Access Token 생성
+        // 2. 새로운 Access Token 생성 (JTI 포함)
         let access_hours = std::env::var("JWT_EXPIRATION_HOURS")
             .unwrap_or_else(|_| "1".to_string())
             .parse::<i64>()
@@ -392,9 +427,11 @@ impl TokenService {
 
         let now = Utc::now();
         let access_exp = now + Duration::seconds(access_expires_in);
+        let access_jti = Uuid::new_v4().to_string(); // 새로운 JWT ID 생성
         
         let access_claims = TokenClaims {
             sub: user_id.to_string(),
+            jti: access_jti, // JWT ID 추가
             auth_provider: token_info.auth_provider.parse().unwrap_or_default(),
             roles: vec!["user".to_string()],
             iat: now.timestamp(),
@@ -411,9 +448,6 @@ impl TokenService {
             &EncodingKey::from_secret(secret.as_ref()),
         )?;
 
-        // 3. 기존 refresh token 유지
-        let _remaining_ttl = (token_info.expires_at - Utc::now().timestamp()).max(0);
-
         Ok(TokenPair {
             access_token: new_access_token,
             refresh_token: Some(refresh_token.to_string()),
@@ -421,7 +455,154 @@ impl TokenService {
         })
     }
 
-    /// 로그아웃 처리 (모든 세션 정보 삭제)
+    /// 액세스 토큰을 블랙리스트에 추가 (상세 정보 포함)
+    /// 
+    /// # Arguments
+    /// * `token` - 블랙리스트에 추가할 액세스 토큰
+    /// * `reason` - 블랙리스트 추가 이유
+    /// * `ip_address` - 요청자 IP 주소 (선택사항)
+    /// * `user_agent` - 사용자 에이전트 (선택사항)
+    /// 
+    /// # Returns
+    /// * `Ok(())` - 성공
+    /// 
+    /// # Examples
+    /// 
+    /// ```rust,ignore
+    /// // 로그아웃 시 현재 토큰을 블랙리스트에 추가
+    /// use crate::repositories::tokens::token_repository::BlacklistReason;
+    /// token_service.add_to_blacklist_detailed(
+    ///     current_access_token, 
+    ///     BlacklistReason::Logout,
+    ///     Some("192.168.1.1".to_string()),
+    ///     Some("Mozilla/5.0...".to_string())
+    /// ).await?;
+    /// ```
+    pub async fn add_to_blacklist_detailed(
+        &self, 
+        token: &str, 
+        reason: crate::repositories::tokens::token_repository::BlacklistReason,
+        ip_address: Option<String>,
+        user_agent: Option<String>
+    ) -> Result<(), AppError> {
+        // 1. 토큰에서 JTI, 사용자 ID, 만료시간 추출
+        let claims = self.verify_token_sync(token)?; // 동기식 검증 사용 (블랙리스트 확인 없음)
+        
+        // 2. 토큰의 남은 만료시간 계산
+        let now = Utc::now().timestamp();
+        let ttl_seconds = (claims.exp - now).max(0) as u64; // 음수 방지
+        
+        if ttl_seconds == 0 {
+            log::warn!("이미 만료된 토큰을 블랙리스트에 추가하려고 시도했습니다: JTI={}", claims.jti);
+            return Ok(()); // 이미 만료된 토큰은 블랙리스트에 추가할 필요 없음
+        }
+        
+        // 3. Redis 블랙리스트에 상세 정보와 함께 추가 (토큰 기반)
+        self.token_repo.blacklist_token_detailed(
+            token,              // 전체 토큰
+            &claims.jti,        // JTI
+            &claims.user_id,    // 사용자 ID
+            claims.exp,         // 원래 만료시간
+            reason,             // 블랙리스트 추가 이유
+            ttl_seconds,        // TTL
+            ip_address,         // IP 주소
+            user_agent,         // User-Agent
+        ).await
+        .map_err(|e| AppError::InternalError(format!("토큰 블랙리스트 추가 실패: {}", e)))?;
+            
+        log::info!("토큰이 상세 정보와 함께 블랙리스트에 추가되었습니다: JTI={}, 사용자={}, TTL={}초", 
+                   claims.jti, claims.user_id, ttl_seconds);
+        Ok(())
+    }
+
+    /// 액세스 토큰을 블랙리스트에 추가 (기본 버전, 호환성 유지)
+    /// 
+    /// # Arguments
+    /// * `token` - 블랙리스트에 추가할 액세스 토큰
+    /// 
+    /// # Returns
+    /// * `Ok(())` - 성공
+    /// 
+    /// # Note
+    /// 이 메서드는 기존 호환성을 위해 유지됩니다.
+    /// 새로운 코드에서는 `add_to_blacklist_detailed`를 사용하세요.
+    /// 
+    /// # Examples
+    /// 
+    /// ```rust,ignore
+    /// // 로그아웃 시 현재 토큰을 블랙리스트에 추가
+    /// token_service.add_to_blacklist(current_access_token).await?;
+    /// ```
+    pub async fn add_to_blacklist(&self, token: &str) -> Result<(), AppError> {
+        use crate::repositories::tokens::token_repository::BlacklistReason;
+        
+        self.add_to_blacklist_detailed(
+            token,
+            BlacklistReason::Other("legacy_logout".to_string()),
+            None,
+            None,
+        ).await
+    }
+
+    /// 로그아웃 처리 (세션 삭제 + 액세스 토큰 블랙리스트 추가, 상세 정보 포함)
+    /// 
+    /// # Arguments
+    /// * `user_id` - 사용자 ID
+    /// * `access_token` - 현재 사용중인 액세스 토큰 (블랙리스트 추가용)
+    /// * `ip_address` - 요청자 IP 주소 (선택사항)
+    /// * `user_agent` - 사용자 에이전트 (선택사항)
+    /// 
+    /// # Note
+    /// 1. Refresh Token과 모든 관련 세션 정보 삭제
+    /// 2. 현재 Access Token을 상세 정보와 함께 블랙리스트에 추가
+    pub async fn logout_with_blacklist_detailed(
+        &self,
+        user_id: &str,
+        access_token: &str,
+        ip_address: Option<String>,
+        user_agent: Option<String>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        use crate::repositories::tokens::token_repository::BlacklistReason;
+        
+        // 1. 현재 액세스 토큰을 상세 정보와 함께 블랙리스트에 추가
+        if let Err(e) = self.add_to_blacklist_detailed(
+            access_token, 
+            BlacklistReason::Logout,
+            ip_address.clone(),
+            user_agent.clone()
+        ).await {
+            log::warn!("액세스 토큰 블랙리스트 추가 실패: {}", e);
+            // 블랙리스트 추가 실패해도 로그아웃은 계속 진행
+        }
+        
+        // 2. 모든 사용자 세션 정보 삭제
+        self.token_repo.delete_all_user_tokens(user_id).await?;
+        
+        log::info!("사용자 로그아웃 완료 - user_id: {}, 세션 삭제 및 토큰 블랙리스트 추가됨 (IP: {:?})", 
+                   user_id, ip_address);
+        Ok(())
+    }
+
+    /// 로그아웃 처리 (세션 삭제 + 액세스 토큰 블랙리스트 추가, 기본 버전)
+    /// 
+    /// # Arguments
+    /// * `user_id` - 사용자 ID
+    /// * `access_token` - 현재 사용중인 액세스 토큰 (블랙리스트 추가용)
+    /// 
+    /// # Note
+    /// 1. Refresh Token과 모든 관련 세션 정보 삭제
+    /// 2. 현재 Access Token을 블랙리스트에 추가
+    /// 
+    /// 새로운 코드에서는 `logout_with_blacklist_detailed`를 사용하세요.
+    pub async fn logout_with_blacklist(
+        &self,
+        user_id: &str,
+        access_token: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.logout_with_blacklist_detailed(user_id, access_token, None, None).await
+    }
+
+    /// 기존 로그아웃 처리 (세션 정보만 삭제)
     /// 
     /// # Arguments
     /// * `user_id` - 사용자 ID
@@ -429,6 +610,8 @@ impl TokenService {
     /// # Note
     /// Refresh Token과 모든 관련 세션 정보를 삭제합니다.
     /// Access Token은 여전히 유효하지만 Refresh가 불가능해집니다.
+    /// 
+    /// 새로운 코드에서는 `logout_with_blacklist`를 사용하세요.
     pub async fn logout(
         &self,
         user_id: &str,
@@ -440,7 +623,7 @@ impl TokenService {
         Ok(())
     }
 
-    /// 토큰 검증 및 상세 결과 반환
+    /// 토큰 검증 및 상세 결과 반환 (블랙리스트 확인 포함)
     /// 
     /// # Arguments
     /// * `token` - 검증할 JWT 토큰
@@ -448,8 +631,7 @@ impl TokenService {
     /// # Returns
     /// TokenValidation 구조체 (is_valid, claims, error_message)
     pub async fn validate_access_token(&self, token: &str) -> TokenValidation {
-        // JWT 검증
-        match self.verify_token(token) {
+        match self.verify_token(token).await {
             Ok(claims) => TokenValidation {
                 is_valid: true,
                 claims: Some(claims),
@@ -477,5 +659,33 @@ impl TokenService {
         // Redis에서 모든 토큰 삭제
         self.token_repo.delete_all_user_tokens(user_id).await?;
         Ok(())
+    }
+
+    /// 사용자의 모든 블랙리스트된 토큰 조회 (관리자용)
+    /// 
+    /// # Arguments
+    /// * `user_id` - 사용자 ID
+    /// 
+    /// # Returns
+    /// 해당 사용자의 모든 블랙리스트된 토큰 정보
+    pub async fn get_user_blacklisted_tokens(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<crate::repositories::tokens::token_repository::BlacklistedTokenInfo>, Box<dyn std::error::Error>> {
+        self.token_repo.get_user_blacklisted_tokens(user_id).await
+    }
+
+    /// 특정 토큰의 블랙리스트 정보 조회
+    /// 
+    /// # Arguments
+    /// * `token` - 조회할 액세스 토큰
+    /// 
+    /// # Returns
+    /// 블랙리스트 정보 (있는 경우)
+    pub async fn get_blacklisted_token_info(
+        &self,
+        token: &str,
+    ) -> Result<Option<crate::repositories::tokens::token_repository::BlacklistedTokenInfo>, Box<dyn std::error::Error>> {
+        self.token_repo.get_blacklisted_token_info(token).await
     }
 }

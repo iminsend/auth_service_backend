@@ -12,6 +12,7 @@ use crate::config::AuthProvider;
 /// ## 클레임 구성
 ///
 /// - `sub`: 토큰의 주체 (사용자 ID)
+/// - `jti`: JWT ID (토큰 고유 식별자, 블랙리스트용)
 /// - `iat`: 토큰 발급 시간 (Unix timestamp)  
 /// - `exp`: 토큰 만료 시간 (Unix timestamp)
 /// - `auth_provider`: 인증 방식 (Local, Google 등)
@@ -22,6 +23,8 @@ use crate::config::AuthProvider;
 pub struct TokenClaims {
     /// 토큰의 주체 (사용자 ID)
     pub sub: String,
+    /// JWT ID (토큰 고유 식별자) - 블랙리스트 관리용
+    pub jti: String,
     /// 인증 프로바이더
     pub auth_provider: AuthProvider,
     /// 사용자 역할 목록 (권한 기반 접근 제어용)
