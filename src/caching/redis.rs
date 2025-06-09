@@ -138,10 +138,14 @@ impl RedisClient {
     ///
     /// * `key` - 삭제할 Redis 키
     ///
+    /// # Returns
+    ///
+    /// 삭제된 키의 개수를 반환합니다.
+    ///
     /// # Errors
     ///
     /// Redis 연결 오류 시 에러를 반환합니다. 키가 존재하지 않아도 성공으로 처리됩니다.
-    pub async fn del(&self, key: &str) -> Result<(), redis::RedisError> {
+    pub async fn del(&self, key: &str) -> Result<u32, redis::RedisError> {
         let mut conn = self.client.get_multiplexed_async_connection().await?;
         conn.del(key).await
     }
@@ -152,6 +156,10 @@ impl RedisClient {
     ///
     /// * `keys` - 삭제할 Redis 키들의 슬라이스
     ///
+    /// # Returns
+    ///
+    /// 삭제된 키의 개수를 반환합니다.
+    ///
     /// # Errors
     ///
     /// Redis 연결 오류 시 에러를 반환합니다.
@@ -160,11 +168,11 @@ impl RedisClient {
     ///
     /// ```rust,ignore
     /// let keys = vec!["user:123".to_string(), "user:456".to_string()];
-    /// redis.del_multiple(&keys).await?;
+    /// let deleted_count = redis.del_multiple(&keys).await?;
     /// ```
-    pub async fn del_multiple(&self, keys: &[String]) -> Result<(), redis::RedisError> {
+    pub async fn del_multiple(&self, keys: &[String]) -> Result<u32, redis::RedisError> {
         if keys.is_empty() {
-            return Ok(());
+            return Ok(0);
         }
         let mut conn = self.client.get_multiplexed_async_connection().await?;
         conn.del(keys).await
@@ -196,6 +204,78 @@ impl RedisClient {
     pub async fn keys(&self, pattern: &str) -> Result<Vec<String>, redis::RedisError> {
         let mut conn = self.client.get_multiplexed_async_connection().await?;
         conn.keys(pattern).await
+    }
+
+    /// String 값을 TTL과 함께 저장합니다 (JSON이 아닌 단순 문자열)
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - 저장할 Redis 키
+    /// * `ttl_seconds` - TTL (초 단위)
+    /// * `value` - 저장할 문자열 값
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// redis.setex("blacklist:token123", 3600, "1").await?;
+    /// ```
+    pub async fn setex(&self, key: &str, ttl_seconds: u64, value: &str) -> Result<(), redis::RedisError> {
+        log::info!("Redis SETEX - Key: {}, TTL: {}, Value length: {}", key, ttl_seconds, value.len());
+        
+        if ttl_seconds == 0 {
+            return Err(redis::RedisError::from((
+                redis::ErrorKind::InvalidClientConfig,
+                "TTL cannot be zero"
+            )));
+        }
+        
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
+        conn.set_ex(key, value, ttl_seconds).await
+    }
+
+    /// 키가 존재하는지 확인합니다.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - 확인할 키
+    ///
+    /// # Returns
+    ///
+    /// * `true` - 키가 존재함
+    /// * `false` - 키가 존재하지 않음
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// if redis.exists("user:123").await? {
+    ///     println!("User exists in cache");
+    /// }
+    /// ```
+    pub async fn exists(&self, key: &str) -> Result<bool, redis::RedisError> {
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
+        let result: u32 = conn.exists(key).await?;
+        Ok(result > 0)
+    }
+
+    /// String 값을 조회합니다 (JSON 역직렬화 없이)
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - 조회할 Redis 키
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(Some(String))` - 키가 존재함
+    /// - `Ok(None)` - 키가 존재하지 않음
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let raw_value: Option<String> = redis.get_string("raw:data").await?;
+    /// ```
+    pub async fn get_string(&self, key: &str) -> Result<Option<String>, redis::RedisError> {
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
+        conn.get(key).await
     }
 }
 

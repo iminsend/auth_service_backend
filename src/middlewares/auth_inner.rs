@@ -117,14 +117,27 @@ async fn extract_token_from_request(
         .ok_or_else(|| AppError::AuthenticationError("Authorization 헤더가 없습니다".to_string()))?;
 
     // Bearer 토큰 추출
-    let token = token_service.extract_bearer_token(auth_header)?;
+    if !auth_header.starts_with("Bearer ") {
+        return Err(AppError::AuthenticationError("Bearer 토큰 형식이 아닙니다".to_string()));
+    }
+    
+    let token = &auth_header[7..]; // "Bearer " 제거
 
-    // 토큰 검증 및 클레임 추출
-    let claims = token_service.verify_token(token)?;
+    // 토큰 검증
+    let validation = token_service.validate_access_token(token).await;
+    
+    if !validation.is_valid {
+        let error_msg = validation.error_message.unwrap_or("토큰이 유효하지 않습니다".to_string());
+        return Err(AppError::AuthenticationError(error_msg));
+    }
+
+    // 클레임에서 사용자 정보 추출
+    let claims = validation.claims
+        .ok_or_else(|| AppError::AuthenticationError("토큰 클레임을 읽을 수 없습니다".to_string()))?;
 
     // AuthenticatedUser 구조체 생성
     Ok(AuthenticatedUser {
-        user_id: claims.sub,
+        user_id: claims.user_id,
         auth_provider: claims.auth_provider,
         roles: claims.roles,
     })

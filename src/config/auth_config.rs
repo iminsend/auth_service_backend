@@ -3,6 +3,7 @@
 //! OAuth 프로바이더, JWT 토큰, 세션 관리 등 인증 관련 설정을 관리합니다.
 
 use std::env;
+use std::str::FromStr;
 
 /// Google OAuth 2.0 설정
 pub struct GoogleOAuthConfig;
@@ -86,24 +87,40 @@ impl JwtConfig {
     ///
     /// # Returns
     ///
-    /// 만료 시간 (시간 단위). 기본값: 24시간
+    /// 만료 시간 (시간 단위). 기본값: 1시간 (최소값 보장)
     pub fn expiration_hours() -> i64 {
-        env::var("JWT_EXPIRATION_HOURS")
-            .unwrap_or_else(|_| "24".to_string())
+        let hours = env::var("JWT_EXPIRATION_HOURS")
+            .unwrap_or_else(|_| "1".to_string())
             .parse()
-            .unwrap_or(24)
+            .unwrap_or(1);
+        
+        // 최소값 보장 (최소 1시간)
+        if hours <= 0 {
+            log::warn!("JWT_EXPIRATION_HOURS가 0 이하입니다 ({}). 기본값 1시간을 사용합니다.", hours);
+            1
+        } else {
+            hours
+        }
     }
 
     /// JWT 리프레시 토큰의 만료 시간을 일 단위로 반환합니다.
     ///
     /// # Returns
     ///
-    /// 만료 시간 (일 단위). 기본값: 7일
+    /// 만료 시간 (일 단위). 기본값: 7일 (최소값 보장)
     pub fn refresh_expiration_days() -> i64 {
-        env::var("JWT_REFRESH_EXPIRATION_DAYS")
+        let days = env::var("JWT_REFRESH_EXPIRATION_DAYS")
             .unwrap_or_else(|_| "7".to_string())
             .parse()
-            .unwrap_or(7)
+            .unwrap_or(7);
+            
+        // 최소값 보장 (최소 1일)
+        if days <= 0 {
+            log::warn!("JWT_REFRESH_EXPIRATION_DAYS가 0 이하입니다 ({}). 기본값 7일을 사용합니다.", days);
+            7
+        } else {
+            days
+        }
     }
 }
 
@@ -147,25 +164,22 @@ pub enum AuthProvider {
     Facebook,
 }
 
-impl AuthProvider {
-    /// 문자열에서 AuthProvider를 생성합니다.
-    ///
-    /// # Arguments
-    ///
-    /// * `s` - 인증 프로바이더 이름 (대소문자 무관)
-    ///
-    /// # Returns
-    ///
-    /// 유효한 프로바이더인 경우 `Ok(AuthProvider)`,
-    /// 지원하지 않는 프로바이더인 경우 `Err(String)`
-    ///
-    /// # Examples
-    ///
-    /// ```rust,ignore
-    /// let provider = AuthProvider::from_str("google")?;
-    /// assert_eq!(provider, AuthProvider::Google);
-    /// ```
-    pub fn from_str(s: &str) -> Result<Self, String> {
+impl Default for AuthProvider {
+    fn default() -> Self {
+        AuthProvider::Local
+    }
+}
+
+impl std::fmt::Display for AuthProvider {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+impl FromStr for AuthProvider {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "local" => Ok(AuthProvider::Local),
             "google" => Ok(AuthProvider::Google),
@@ -174,7 +188,9 @@ impl AuthProvider {
             _ => Err(format!("Unsupported auth provider: {}", s)),
         }
     }
+}
 
+impl AuthProvider {
     /// AuthProvider를 문자열로 변환합니다.
     ///
     /// # Returns
@@ -197,19 +213,19 @@ mod tests {
     #[test]
     fn test_auth_provider_from_string() {
         assert_eq!(
-            AuthProvider::from_str("local").unwrap(),
+            "local".parse::<AuthProvider>().unwrap(),
             AuthProvider::Local
         );
         assert_eq!(
-            AuthProvider::from_str("google").unwrap(),
+            "google".parse::<AuthProvider>().unwrap(),
             AuthProvider::Google
         );
         assert_eq!(
-            AuthProvider::from_str("GOOGLE").unwrap(),
+            "GOOGLE".parse::<AuthProvider>().unwrap(),
             AuthProvider::Google
         );
 
-        assert!(AuthProvider::from_str("twitter").is_err());
+        assert!("twitter".parse::<AuthProvider>().is_err());
     }
 
     #[test]

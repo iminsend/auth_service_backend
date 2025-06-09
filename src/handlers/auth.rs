@@ -8,12 +8,10 @@
 //! - **로컬 인증**: 이메일/패스워드 방식 (`POST /auth/login`)
 //! - **OAuth 2.0**: Google OAuth 인증 (`GET /auth/google/login`, `/callback`)
 //! - **토큰 검증**: JWT 토큰 유효성 확인 (`POST /auth/verify`)
-
 use actix_web::{get, post, web, HttpRequest, HttpResponse};
 use serde_json::json;
 use validator::Validate;
 use crate::{
-    domain::dto::users::response::LoginResponse,
     services::{
         auth::{GoogleAuthService, TokenService},
         users::user_service::UserService,
@@ -25,6 +23,7 @@ use crate::errors::errors::AppError;
 /// 로컬 로그인 핸들러
 ///
 /// 이메일과 패스워드를 사용한 전통적인 로그인을 처리합니다.
+/// 새로운 JWT 토큰 관리 시스템(refresh token + blacklist)을 사용합니다.
 /// 
 /// # Endpoint
 /// `POST /auth/login`
@@ -44,25 +43,37 @@ pub async fn local_login(
         .verify_password(&payload.email, &payload.password)
         .await?;
 
-    // JWT 토큰 생성
-    let token_pair = token_service.generate_token_pair(&user)?;
+    let user_id = user.id_string().unwrap_or_default();
+    
+    log::info!("로컬 로그인 시도 - 사용자: {}, ID: {}", payload.email, user_id);
 
-    // 응답 생성
-    let response = match token_pair.refresh_token {
-        Some(rt) => LoginResponse::with_refresh_token(
-            user,
-            token_pair.access_token,
-            token_pair.expires_in,
-            rt,
-        ),
-        None => LoginResponse::new(
-            user,
-            token_pair.access_token,
-            token_pair.expires_in,
-        ),
-    };
+    // JWT 토큰 쌍 생성 (Google 로그인과 동일한 방식) + Redis 세션 저장
+    let token_pair = token_service
+        .generate_token_pair(&user)
+        .await
+        .map_err(|e| {
+            log::error!("토큰 생성 실패 - 사용자: {}, 에러: {}", payload.email, e);
+            AppError::InternalError(format!("토큰 생성 실패: {}", e))
+        })?;
 
-    log::info!("사용자 로컬 로그인 성공: {}", payload.email);
+    // 응답 생성 (Google 로그인과 동일한 구조)
+    let response = serde_json::json!({
+        "user": {
+            "id": user_id,
+            "username": user.username,
+            "email": user.email,
+            "roles": user.roles,
+            "auth_provider": user.auth_provider,
+            "is_active": user.is_active,
+            "created_at": user.created_at,
+            "updated_at": user.updated_at
+        },
+        "access_token": token_pair.access_token,
+        "refresh_token": token_pair.refresh_token.unwrap_or_default(),
+        "expires_in": token_pair.expires_in,
+        "token_type": "Bearer"
+    });
+
     Ok(HttpResponse::Ok().json(response))
 }
 
@@ -83,6 +94,7 @@ pub async fn google_login_url() -> Result<HttpResponse, AppError> {
 /// Google OAuth 콜백 처리 핸들러
 ///
 /// Google OAuth 인증 완료 후 리다이렉트되는 콜백을 처리합니다.
+/// 새로운 JWT 토큰 관리 시스템(refresh token + blacklist)을 사용합니다.
 /// 
 /// # Endpoint
 /// `GET /auth/google/callback?code={code}&state={state}`
@@ -104,32 +116,38 @@ pub async fn google_oauth_callback(
         .map_err(|e| AppError::ValidationError(e.to_string()))?;
 
     let google_service = GoogleAuthService::instance();
-    let token_service = TokenService::instance();
+    let token_service = TokenService::instance(); // 새로운 토큰 서비스 사용
 
     // Google OAuth 인증 처리
     let user = google_service
         .authenticate_with_code(&query.code, &query.state)
         .await?;
 
-    // JWT 토큰 생성
-    let token_pair = token_service.generate_token_pair(&user)?;
+    // JWT 토큰 쌍 생성 (Local 로그인과 동일한 방식) + Redis 세션 저장
+    let token_pair = token_service
+        .generate_token_pair(&user)
+        .await
+        .map_err(|e| AppError::InternalError(format!("토큰 생성 실패: {}", e)))?;
 
-    // 응답 생성
-    let response = match token_pair.refresh_token {
-        Some(rt) => LoginResponse::with_refresh_token(
-            user,
-            token_pair.access_token,
-            token_pair.expires_in,
-            rt,
-        ),
-        None => LoginResponse::new(
-            user,
-            token_pair.access_token,
-            token_pair.expires_in,
-        ),
-    };
+    // 응답 생성 (Local 로그인과 동일한 구조)
+    let response = serde_json::json!({
+        "user": {
+            "id": user.id_string().unwrap_or_default(),
+            "username": user.username,
+            "email": user.email,
+            "roles": user.roles,
+            "auth_provider": user.auth_provider,
+            "is_active": user.is_active,
+            "created_at": user.created_at,
+            "updated_at": user.updated_at
+        },
+        "access_token": token_pair.access_token,
+        "refresh_token": token_pair.refresh_token.unwrap_or_default(),
+        "expires_in": token_pair.expires_in,
+        "token_type": "Bearer"
+    });
 
-    log::info!("Google OAuth 로그인 성공");
+    log::info!("Google OAuth 로그인 성공 (JWT 토큰 방식): {}", user.email);
     Ok(HttpResponse::Ok().json(response))
 }
 
@@ -237,7 +255,7 @@ pub async fn refresh_tokens(
     }
 
     // 새로운 토큰 쌍 생성
-    let token_pair = token_service.generate_token_pair(&user)?;
+    let token_pair = token_service.generate_token_pair(&user).await?;
 
     log::info!("토큰 갱신 성공: 사용자 ID {}", claims.sub);
 

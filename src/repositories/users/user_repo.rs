@@ -61,10 +61,10 @@ impl UserRepository {
             .await
             .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
-        // 캐시에 저장 (10분)
+        // 캐시에 저장 (사용자 정보는 짧은 TTL - 5분)
         if let Some(ref user) = user {
             let _ = self.redis
-                .set_with_expiry(&cache_key, user, 600)
+                .set_with_expiry(&cache_key, user, 300) // 5분으로 단축
                 .await;
         }
 

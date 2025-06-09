@@ -16,6 +16,8 @@ use crate::config::AuthProvider;
 /// - `exp`: 토큰 만료 시간 (Unix timestamp)
 /// - `auth_provider`: 인증 방식 (Local, Google 등)
 /// - `roles`: 사용자 권한 목록
+/// - `user_id`: 사용자 ID (sub와 동일하지만 명시적 접근용)
+/// - `email`: 사용자 이메일 (선택사항)
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TokenClaims {
     /// 토큰의 주체 (사용자 ID)
@@ -28,6 +30,11 @@ pub struct TokenClaims {
     pub iat: i64,
     /// 토큰 만료 시간 (Unix timestamp)
     pub exp: i64,
+    /// 사용자 ID (sub와 동일)
+    pub user_id: String,
+    /// 사용자 이메일 (선택사항)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
 }
 
 /// JWT 토큰 쌍 구조체

@@ -377,6 +377,7 @@ dependencies = [
  "singleton_macro",
  "thiserror 2.0.12",
  "urlencoding",
+ "uuid",
  "validator",
 ]
 

@@ -111,16 +111,16 @@ pub fn configure_all_routes(cfg: &mut web::ServiceConfig) {
 ///   -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
 /// ```
 fn configure_user_routes(cfg: &mut web::ServiceConfig) {
+    // Public routes
     cfg.service(
         web::scope("/api/v1/users")
-            // 인증이 필요 없는 라우트들
             .service(handlers::users::create_user)
             .service(handlers::users::delete_user)
     );
     
-    // 인증이 필요한 사용자 라우트들
+    // Protected routes - 명확한 이름 사용
     cfg.service(
-        web::scope("/api/v1/users")
+        web::scope("/api/v1/me")  // 간단하고 명확
             .wrap(AuthMiddleware::required_with_roles(vec!["user", "admin"]))
             .service(handlers::users::get_user)
     );
@@ -165,10 +165,19 @@ fn configure_auth_routes(cfg: &mut web::ServiceConfig) {
             .service(handlers::auth::local_login)
             .service(handlers::auth::verify_token)
             .service(handlers::auth::get_current_user)
-            .service(handlers::auth::refresh_tokens)  
+            .service(handlers::auth::refresh_tokens)
             // Google OAuth
             .service(handlers::auth::google_login_url)
             .service(handlers::auth::google_oauth_callback)
+    );
+
+    // 인증이 필요한 사용자 라우트들
+    cfg.service(
+        web::scope("/api/v1/token")
+            .wrap(AuthMiddleware::required_with_roles(vec!["user", "admin"]))
+            .service(handlers::token_handlers::refresh_token_handler)
+            .service(handlers::token_handlers::logout_handler)
+            .service(handlers::token_handlers::revoke_all_tokens_handler)
     );
 }
 
