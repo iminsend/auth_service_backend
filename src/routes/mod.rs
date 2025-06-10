@@ -78,6 +78,9 @@ pub fn configure_all_routes(cfg: &mut web::ServiceConfig) {
     // Feature-specific routes
     configure_user_routes(cfg);
     configure_auth_routes(cfg);
+    
+    // RSA routes
+    configure_rsa_routes(cfg);
 }
 
 /// 사용자 관련 라우트를 설정합니다
@@ -178,6 +181,13 @@ fn configure_auth_routes(cfg: &mut web::ServiceConfig) {
             .service(handlers::token_handlers::refresh_token_handler)
             .service(handlers::token_handlers::logout_handler)
             .service(handlers::token_handlers::revoke_all_tokens_handler)
+    );
+}
+
+fn configure_rsa_routes(cfg: &mut web::ServiceConfig) {
+    cfg.service(
+        web::scope("/api/v1/rsa")
+            .service(handlers::rsa::jwks_handler)
     );
 }
 

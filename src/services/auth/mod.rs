@@ -33,6 +33,8 @@
 
 pub mod token_service;
 pub mod google_auth_service;
+pub mod jwt_rsa_service;
 
 pub use token_service::*;
 pub use google_auth_service::*;
+pub use jwt_rsa_service::*;

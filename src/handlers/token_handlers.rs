@@ -1,48 +1,8 @@
 use actix_web::{web, HttpRequest, HttpResponse, Result, get, post, HttpMessage};
-use actix_web::dev::{ServiceRequest, ServiceResponse};
-use actix_web::middleware::Next;
-use serde::{Deserialize, Serialize};
 use crate::services::auth::TokenService;
 use crate::domain::models::token::token::TokenClaims;
 use chrono;
-
-/// 토큰 갱신 요청 DTO
-#[derive(Deserialize)]
-pub struct RefreshRequest {
-    pub refresh_token: String,
-}
-
-/// 로그아웃 요청 DTO (Header의 Authorization에서 access_token 추출)
-#[derive(Deserialize)]
-pub struct LogoutRequest {
-    // 필요시 추가 정보
-}
-
-/// API 응답 래퍼
-#[derive(Serialize)]
-pub struct ApiResponse<T> {
-    pub success: bool,
-    pub data: Option<T>,
-    pub message: Option<String>,
-}
-
-impl<T> ApiResponse<T> {
-    pub fn success(data: T) -> Self {
-        Self {
-            success: true,
-            data: Some(data),
-            message: None,
-        }
-    }
-
-    pub fn error(message: String) -> ApiResponse<()> {
-        ApiResponse {
-            success: false,
-            data: None,
-            message: Some(message),
-        }
-    }
-}
+use crate::domain::{ApiResponse, LogoutRequest, RefreshRequest};
 
 /// 토큰 갱신 API 핸들러
 #[post("/refresh")]
@@ -73,13 +33,6 @@ pub async fn refresh_token_handler(
             ))
         }
     }
-}
-
-#[post("/test")]
-pub async fn test_token(
-    _req: HttpRequest,
-) -> Result<HttpResponse> {
-    Ok(HttpResponse::Ok().json(ApiResponse::success("test")))
 }
 
 /// 로그아웃 API 핸들러 (상세 블랙리스트 지원)
@@ -241,61 +194,6 @@ pub async fn revoke_all_tokens_handler(
     }
 }
 
-/// JWT 인증 미들웨어 (블랙리스트 확인 포함)
-pub async fn jwt_auth_middleware(
-    req: ServiceRequest,
-    next: Next<impl actix_web::body::MessageBody>,
-) -> Result<ServiceResponse<impl actix_web::body::MessageBody>, actix_web::Error> {
-    // Authorization 헤더에서 토큰 추출
-    let auth_header = req.headers().get("Authorization");
-    
-    let token = match auth_header {
-        Some(header) => {
-            let auth_str = header.to_str().map_err(|_| {
-                actix_web::error::ErrorUnauthorized("Invalid Authorization header")
-            })?;
-            
-            if !auth_str.starts_with("Bearer ") {
-                return Err(actix_web::error::ErrorUnauthorized("Invalid token format"));
-            }
-            
-            &auth_str[7..] // "Bearer " 제거
-        }
-        None => {
-            return Err(actix_web::error::ErrorUnauthorized("Missing Authorization header"));
-        }
-    };
-
-    // 토큰 검증 (블랙리스트 확인 포함)
-    let token_service = TokenService::instance();
-    let validation = token_service.validate_access_token(token).await;
-    
-    if !validation.is_valid {
-        let error_msg = validation.error_message.unwrap_or("Invalid token".to_string());
-        
-        // 블랙리스트 관련 에러 메시지 개선
-        let user_friendly_msg = if error_msg.contains("블랙리스트") {
-            "세션이 만료되었습니다. 다시 로그인해주세요."
-        } else if error_msg.contains("만료") {
-            "토큰이 만료되었습니다. 다시 로그인해주세요."
-        } else {
-            "인증이 필요합니다. 다시 로그인해주세요."
-        };
-        
-        log::warn!("JWT 인증 실패: {} (원본: {})", user_friendly_msg, error_msg);
-        return Err(actix_web::error::ErrorUnauthorized(user_friendly_msg));
-    }
-
-    // 검증된 사용자 정보를 request extensions에 저장
-    if let Some(claims) = validation.claims {
-        req.extensions_mut().insert(claims);
-    }
-
-    // 다음 미들웨어/핸들러로 진행
-    next.call(req).await
-}
-
-// ===== 헬퍼 함수들 =====
 
 /// Request에서 사용자 ID 추출 (블랙리스트 확인 포함)
 async fn extract_user_id_from_request(req: &HttpRequest) -> Option<String> {

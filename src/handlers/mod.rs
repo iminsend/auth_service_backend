@@ -28,3 +28,4 @@
 pub mod users;
 pub mod auth;
 pub mod token_handlers;
+pub mod rsa;

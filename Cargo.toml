@@ -32,6 +32,9 @@ bcrypt = "0.17.0"
 
 # JWT tokens
 jsonwebtoken = "9.3"
+rsa = "0.9.8"
+base64 = "0.22.1"
+
 
 # HTTP client
 reqwest = { version = "0.12", features = ["json"] }
