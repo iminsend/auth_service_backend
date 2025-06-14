@@ -188,6 +188,12 @@ fn configure_rsa_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/api/v1/rsa")
             .service(handlers::rsa::jwks_handler)
+            .service(handlers::rsa::register_public_key)
+            .service(handlers::rsa::get_registered_services)
+            .service(handlers::rsa::get_all_keys_admin)
+            .service(handlers::rsa::deactivate_key)
+            .service(handlers::rsa::activate_key)
+            .service(handlers::rsa::get_jwt_secret)
     );
 }
 

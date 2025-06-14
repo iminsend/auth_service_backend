@@ -376,6 +376,7 @@ dependencies = [
  "rsa",
  "serde",
  "serde_json",
+ "sha2",
  "singleton_macro",
  "thiserror 2.0.12",
  "urlencoding",
